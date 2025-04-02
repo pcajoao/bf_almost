@@ -1,0 +1,65 @@
+version: '3.4'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - database
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app
+      - bundle_cache:/usr/local/bundle/gems
+    env_file: .env
+    environment:
+      RAILS_ENV: development
+
+
+  test:
+    build: .
+    command: >
+      bash -c "
+        echo 'Waiting for PostgreSQL to start...' &&
+        while ! pg_isready -h database -U postgres; do
+          echo 'PostgreSQL is unavailable - sleeping' &&
+          sleep 1;
+        done &&
+        echo 'PostgreSQL is up - executing setup' &&
+        bundle config unset without &&
+        bundle install --with test &&
+        PGPASSWORD=postgres psql -h database -U postgres -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'onetrade_test';\" &&
+        bundle exec rake database:test:prepare &&
+        echo 'Setup complete. Run bundle exec rspec to run the tests.'
+      "
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      - RAILS_ENV=test
+      - DATABASE_HOST=database
+      - DATABASE_USER=bfalmost
+      - DATABASE_PASSWORD=bfalmost
+      - DATABASE_NAME=bf_almost_test
+    volumes:
+      - .:/app
+      - bundle_cache:/usr/local/bundle/gems
+
+  database:
+    image: postgres:13.4
+    environment:
+      - POSTGRES_PASSWORD=bfalmost
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  bundle_cache:
+  db_data:
